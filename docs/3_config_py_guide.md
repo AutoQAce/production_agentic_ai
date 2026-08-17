@@ -231,7 +231,7 @@ symlinks. `.parents[2]` walks up three levels: `[0]` = `app/core`, `[1]` = `app`
 **current working directory**. Then:
 
 ```
-cd C:\Bhavya\Medium\7_layers_production_agentic_ai
+cd C:\Bhavya\Medium\production_agentic_ai
 uv run uvicorn app.main:app          # ✅ finds .env
 
 cd C:\Bhavya\Medium
@@ -1393,4 +1393,4 @@ uv run python -c "from app.main import create_app; create_app(); print('boots')"
 
 ---
 
-*Last updated: 2026-08-16 | Based on `app/core/config.py` of the `7_layers_production_agentic_ai` project*
+*Last updated: 2026-08-16 | Based on `app/core/config.py` of the `production_agentic_ai` project*

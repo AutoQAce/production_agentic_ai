@@ -59,7 +59,7 @@ The **master settings file** for a Python project. One file replacing `setup.py`
 
 ```toml
 [project]
-name = "7-layers-production-agentic-ai"
+name = "production-agentic-ai"
 version = "0.1.0"
 description = "Production-grade agentic AI system"
 readme = "README.md"

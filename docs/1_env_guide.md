@@ -530,4 +530,4 @@ When starting the project or setting up a new environment:
 
 ---
 
-*Last updated: July 2026 | Based on `.env.example` of the `7_layers_production_agentic_ai` project*
+*Last updated: July 2026 | Based on `.env.example` of the `production_agentic_ai` project*
