@@ -1,0 +1,27 @@
+repos: # top - level : A list of hook resources.
+  - repo: https://github.com/astral-sh/ruff-pre-commit # <url> where the hook definitions live (a git repo or local)
+    rev: v0.8.0 # Exact version to pin  - required for any repo: Except 'local'
+    hooks: # which specific checks from tha repo to actually run
+    - id: ruff
+      args: [--fix]   # <hook-name> the specific hook's identifier, defined by that repo's own . pre-commit-hooks.yaml
+    - id: ruff-format
+
+  - repo : local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: mypy .
+        language: system
+        pass_filenames: false # by default pre-commit appends the list of staged filenames to entry command(mypy file1.py file2.py). This flag turns that off, so entry: mypy . runs exactly as written regardless of which files are staged - necessary because we deliberately want whole-project context, not per-file.
+        types: [python] # A filter only trigger this hook at all if at least one staged file matches type Python(.py extension) if you are only committing a README.md change, this hook won't even fire - saves time on commits that don't touch code.
+        exclude : ^(migrations/|tests/) # skip these paths entirely from consideration in this hook.
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer # ensures every file ends with exactly one newline characters.
+      - id: check-yaml # Parses every staged .yaml/.yml file to confirm it is syntactically valid YAML without loading it.
+      - id: check-added-large-files # aborts commit if any staged file is larger than a given threshold to prevent someone accidently git add model checkpoint, a database dump, a virtual env folder - files that bloat the repo size permanently. Git history does not shrink easily once sth is commited)
+        args: [--maxkb=10000]
+      - id: check-merge-conflict # aborts commit if any staged file contains Git's merge conflict markers (<<<<<<<, =======, >>>>>>). Helps catch accidental inclusion of unresolved conflicts

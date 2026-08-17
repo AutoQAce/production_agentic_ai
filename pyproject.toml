@@ -1,0 +1,116 @@
+# ==========================
+# Project Metadata (PEP 621)
+# ==========================
+[project]
+name = "7-layers-production-agentic-ai"
+version = "0.1.0"
+description = "Production-grade agentic AI system"
+readme = "README.md"
+requires-python = ">=3.12, <3.14"   # article targets 3.13; 3.12 dev venv kept
+
+# ==========================
+# Core Runtime Dependencies (follow-article-exactly stack)
+# ==========================
+dependencies = [
+    # --- Web framework & server ---
+    "fastapi>=0.121.0", # High-performance async web framework
+    "uvicorn[standard]>=0.34.0", # ASGI server. [standard] pulls httptools + uvloop (uvloop already carries a `sys_platform != 'win32'` marker, so Windows dev is unaffected and the Azure Linux VM gets it)
+
+    # --- LangChain / LangGraph ecosystem ---
+    "langchain>=1.0.5",
+    "langchain-core>=1.0.4",
+    "langchain-openai>=1.0.2",
+    "langchain-community>=0.4.1",
+    "langgraph>=1.0.2",
+    "langgraph-checkpoint-postgres>=3.0.1", # Postgres-backed LangGraph checkpointer (persistence layer)
+
+    # --- Observability & tracing ---
+    "langfuse>=3.9.1", # LLM tracing, monitoring, evaluation (pinned per article)
+    "structlog>=26.1.0", # Structured, context-aware logging
+
+    # --- Authentication & security ---
+    "bcrypt>=4.3.0", # used directly; passlib dropped (incompatible with bcrypt>=5)
+    "python-jose[cryptography]>=3.4.0", # JWT handling
+
+    # --- Database & persistence ---
+    "psycopg[binary]>=3.2.0", # psycopg 3 + bundled libpq — required by langgraph-checkpoint-postgres
+    "psycopg2-binary>=2.9.10", # only for the plain `postgresql://` SQLAlchemy DSN in config.py; drop once that moves to `postgresql+psycopg://`
+    "sqlmodel>=0.0.24", # SQLAlchemy + Pydantic ORM
+    "supabase>=2.15.0",
+
+    # --- Configuration & environment ---
+    "pydantic[email]>=2.11.1", # [email] supplies email-validator
+    "pydantic-settings>=2.8.1",
+    "python-dotenv>=1.1.0",
+
+    # --- API utilities ---
+    "python-multipart>=0.0.20",
+    "slowapi>=0.1.9", # Rate limiting for FastAPI
+
+    # --- Metrics & monitoring ---
+    "prometheus-client>=0.19.0",
+    "starlette-prometheus>=0.7.0",
+
+    # --- Search & external tools ---
+    "ddgs>=9.6.0", # DuckDuckGo search client
+
+    # --- Reliability & utilities ---
+    "tenacity>=9.1.2", # Retry logic for the resilient LLM service layer
+
+    # --- Memory / agent tooling ---
+    "mem0ai>=1.0.0", # Long-term (cross-session) memory
+]
+
+[dependency-groups]
+test = ["httpx>=0.28.1", "pytest>=8.3.5","pytest-cov>=6.0.0","pytest-asyncio>=0.24.0"]
+dev = ["ruff>=0.8.0", "mypy>=1.11.1","pre-commit>=4.6.0"]
+
+# uv application (not a distributable library) — avoids setuptools package auto-discovery over app/ evals/ scripts/
+[tool.uv]
+package = false
+default-groups = ["test","dev"]
+
+# ==========================
+# Pytest
+# ==========================
+[tool.pytest.ini_options]
+pythonpath = ["."]   # put the project root on sys.path so `import app...` resolves (non-package app)
+testpaths = ["tests"] # bound collection to tests/ — don't walk evals/ and scripts/
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+python_files = ["test_*.py", "*_test.py", "tests.py"]
+addopts = ["--cov=app", "--cov-report=term-missing"] # without this the [tool.coverage] fail_under gate never runs
+asyncio_mode = "auto" # treat bare `async def test_*` as async tests — no @pytest.mark.asyncio needed
+asyncio_default_fixture_loop_scope = "function"
+
+# ==========================
+# Ruff
+# ==========================
+[tool.ruff]
+line-length = 119
+exclude = ["migrations", "*.ipynb", ".venv"] # tests/ stays linted so per-file-ignores below can apply
+lint.select = ["E", "F", "I", "UP", "B", "ERA", "S"]
+lint.ignore = ["E501", "UP006", "UP007", "UP035"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "F401"]
+"tests/*" = ["UP", "S101", "S105", "S106"] # S101 = bare `assert`, the whole point of a test; S105/S106 = fake secrets in fixtures
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/tests/*", "*/migrations/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+[tool.mypy]
+# python_version deliberately unset — inferred from the running interpreter, so it
+# tracks requires-python (>=3.12,<3.14) instead of pinning checks to 3.12 semantics.
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+exclude = ["^(migrations|evals|scripts|tests)/"]  # anchored: only these top-level dirs, not any path containing the word
