@@ -745,7 +745,7 @@ conventional solution.
 ```python
 # --- Logging (consumed via the `LoggingConfig` Protocol in app/core/logging.py) ---
 LOG_LEVEL: str = "INFO"
-LOG_FORMAT: str = "json"  # validated by `_renderer_for()`, which owns the renderer registry
+LOG_FORMAT: str = "json"  # validated by `_tail_processors_for()`, which owns the renderer registry
 ```
 
 🚨 **These two lines are the boot-crash fix.** [`logging.py`](../app/core/logging.py) declares:
@@ -755,15 +755,22 @@ LOG_FORMAT: str = "json"  # validated by `_renderer_for()`, which owns the rende
 class LoggingConfig(Protocol):
     LOG_LEVEL: str
     LOG_FORMAT: str
+    PROJECT_NAME: str
+    VERSION: str
+    APP_ENV: str
 ```
 
 and `main.py` calls `configure_logging(settings)`. Without these fields, `Settings` doesn't satisfy
 the Protocol and you get `AttributeError` before the first request.
 
+> ⚠️ **Updated 2026-08-19:** this Protocol was 2 fields when this guide was written. It is now **5** —
+> `PROJECT_NAME`/`VERSION`/`APP_ENV` were added so every log line carries service identity. See
+> [`4_logging_guide.md` §5](./4_logging_guide.md#5-loggingconfig--lines-3749).
+
 ❓ **Why is `LOG_FORMAT` not validated here:** because `logging.py` already owns the renderer
-registry (`_RENDERERS`) and raises `ConfigurationError` with the valid list. Validating it *here too*
-would create a second source of truth that drifts the moment someone registers a new renderer.
-**Whoever owns the registry owns the validation.**
+registry (`_TAIL_PROCESSORS`) and raises `ConfigurationError` with the valid list. Validating it
+*here too* would create a second source of truth that drifts the moment someone registers a new
+renderer. **Whoever owns the registry owns the validation.**
 
 ❓ **Why is `LOG_LEVEL` validated here then?** Because nobody else does. `logging.setLevel("CHATTY")`
 raises a `ValueError` from deep inside stdlib with no useful context. We catch it at the boundary.
@@ -1222,7 +1229,7 @@ applied, because cargo-culting SOLID produces worse code than ignoring it.
 | **S** — Single Responsibility | `Settings` only *holds and validates* config. It doesn't load `.env` (that's `_env_files`), doesn't judge secrets (`_is_placeholder`), doesn't detect the environment (`_current_app_env`), doesn't own the logging registry (`logging.py` does). Contrast the article's `__init__`, which did all five. |
 | **O** — Open/Closed | New environment = one row in `ENVIRONMENT_TIERS` + one `.env` file. New secret in the guard = one line in the loop tuple. New config source (Key Vault) = override `settings_customise_sources`. **The guard's branches never change.** |
 | **L** — Liskov Substitution | Any object with `LOG_LEVEL: str` and `LOG_FORMAT: str` can be passed to `configure_logging` — a real `Settings`, a test stub, a future `RemoteSettings`. No call site can tell the difference. |
-| **I** — Interface Segregation | `logging.py` depends on a **2-field** `LoggingConfig` Protocol, not on the 20-field `Settings`. It can be configured and tested without loading a single `.env` file. Every future module does the same: declare the narrow slice you need. |
+| **I** — Interface Segregation | `logging.py` depends on a **5-field** `LoggingConfig` Protocol, not on the 20-field `Settings`. It can be configured and tested without loading a single `.env` file. Every future module does the same: declare the narrow slice you need. |
 | **D** — Dependency Inversion | Consumers depend on `get_settings` (a callable) and on Protocols (abstractions), not on a module-level global (a concretion). FastAPI's `Depends(get_settings)` makes that swappable per-test. |
 
 ### ⚠️ Where SOLID is deliberately NOT applied
@@ -1386,7 +1393,7 @@ uv run python -c "from app.main import create_app; create_app(); print('boots')"
 |---|---|
 | [`.env.example`](../.env.example) | the keys this file expects — see [`1_env_guide.md`](./1_env_guide.md) |
 | [`app/core/exceptions.py`](../app/core/exceptions.py) | `ConfigurationError`, raised by the guard |
-| [`app/core/logging.py`](../app/core/logging.py) | consumes `LOG_LEVEL`/`LOG_FORMAT` via the `LoggingConfig` Protocol |
+| [`app/core/logging.py`](../app/core/logging.py) | consumes 5 fields via the `LoggingConfig` Protocol — see [`4_logging_guide.md`](./4_logging_guide.md) |
 | [`app/main.py`](../app/main.py) | calls `get_settings()` inside `create_app()` |
 | [`tests/test_config.py`](../tests/test_config.py) | every claim in this guide is asserted there |
 | [`pyproject.toml`](../pyproject.toml) | see [`2_pyproject_toml_guide.md`](./2_pyproject_toml_guide.md) |

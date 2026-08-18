@@ -141,7 +141,7 @@ class Settings(BaseSettings):
 
     # --- Logging (consumed via the `LoggingConfig` Protocol in app/core/logging.py) ---
     LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "json"  # validated by `_renderer_for()`, which owns the renderer registry
+    LOG_FORMAT: str = "json"  # validated by `_tail_processors_for()`, which owns the renderer registry
 
     # --- LLM ---
     OPENAI_API_KEY: SecretStr = SecretStr("")

@@ -34,9 +34,15 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         logger.info("request_started")
         try:
             response = await call_next(request)
-        except Exception:
+        except Exception as exc:
             duration_ms = (time.perf_counter() - start) * 1000
-            logger.exception("request_failed", duration_ms=duration_ms)
+            # Deliberately NOT `logger.exception()`: this middleware sits *inside* Starlette's
+            # ServerErrorMiddleware, so an escaping exception is logged again -- with the full
+            # traceback and blame frame -- by `handle_unhandled_exception`. Emitting the traceback
+            # here too produced two stack dumps per failure, which doubles log volume and makes a
+            # single failure look like two. This line's job is only to close the request lifecycle
+            # (its duration), so it records the type and leaves the diagnosis to the handler.
+            logger.warning("request_failed", duration_ms=duration_ms, exception_type=type(exc).__qualname__)
             raise
 
         duration_ms = (time.perf_counter() - start) * 1000

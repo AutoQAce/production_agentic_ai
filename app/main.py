@@ -13,8 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.core.exception_handlers import handle_app_exception, handle_unhandled_exception
-from app.core.exceptions import AppException
+from app.core.exception_handlers import build_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
 
@@ -41,8 +40,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.add_exception_handler(AppException, handle_app_exception)
-    app.add_exception_handler(Exception, handle_unhandled_exception)
+    # One loop, not one call per type: adding a handler is a row in the registry (see
+    # `build_exception_handlers`), so this factory never grows when a new failure family appears.
+    for exception_type, handler in build_exception_handlers(settings).items():
+        app.add_exception_handler(exception_type, handler)
 
     @app.get("/health", tags=["ops"])
     def health() -> dict[str, str]:
