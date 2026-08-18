@@ -403,6 +403,8 @@ pytest                 # everything, before merging
 
 ---
 
+<a id="addopts"></a>
+
 ### ⚠️ `addopts = ["--cov=app", "--cov-report=term-missing"]`
 
 **This is the second silent-failure bug, and the most transferable lesson in this file.**
@@ -621,7 +623,7 @@ show_missing = true
 | `fail_under = 80` | the pass mark | **exits non-zero** below 80% — this is what makes it a *gate* rather than a report |
 | `show_missing = true` | "tell me *which* lines, not just the score" | prints uncovered line numbers so the number is actionable |
 
-⚠️ **Everything in this block was inert until `addopts` was added** — see [§6](#-addopts--covapp---cov-reportterm-missing). It is the rulebook; `--cov` is what summons the inspector.
+⚠️ **Everything in this block was inert until `addopts` was added** — see [§6](#addopts). It is the rulebook; `--cov` is what summons the inspector.
 
 ⚠️ **Still a real problem:** `fail_under = 80` against **actual coverage of 0%** (the suite can't currently collect, due to an unrelated `LOG_FORMAT` bug in `app/core/config.py`). A gate that fails every single run is a gate someone disables in week two. **Production practice is to ratchet:** set it to current + 1 and raise it as coverage climbs. An aspirational number plus a permanently red build teaches the team to ignore red builds.
 

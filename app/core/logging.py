@@ -100,9 +100,9 @@ def _tail_processors_for(log_format: str) -> tuple[structlog.types.Processor, ..
 def _wants_callsite(config: LoggingConfig) -> bool:
     """Whether to pay for file/function/line on every line.
 
-    `CallsiteParameterAdder` walks the stack per event. Measured on this chain it costs ~30 us of a
-    ~74 us log line -- about 41% overhead -- and in an agentic system log volume scales with tool
-    calls and streamed steps, not with requests. So it is on where a human is reading the output
+    `CallsiteParameterAdder` walks the stack per event. Measured via `scripts/bench_logging.py` it
+    adds ~12 us to a ~51 us log line (~24% overhead), and in an agentic system log volume scales with
+    tool calls and streamed steps, not with requests. So it is on where a human is reading the output
     (console) or has explicitly asked for detail (DEBUG), and off otherwise, where `logger` +
     `event` already say where a line came from and any error carries a full structured traceback.
     """
@@ -160,8 +160,8 @@ def configure_logging(config: LoggingConfig) -> None:
     structlog.configure(
         processors=[
             # First, so a suppressed line costs one `isEnabledFor()` call instead of the whole
-            # chain. At DEBUG-heavy call sites in an agent loop that is the difference between a
-            # free log statement and a measurable one.
+            # chain -- measured ~4 us against ~57 us for an emitted line. At DEBUG-heavy call sites
+            # in an agent loop that is the difference between a free log statement and a real one.
             structlog.stdlib.filter_by_level,
             *shared,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
@@ -177,8 +177,9 @@ def configure_logging(config: LoggingConfig) -> None:
         # Note it does NOT break `structlog.testing.capture_logs()` -- that was true before
         # structlog 25.5, which now mutates the configured list in place specifically "to not break
         # references held by bound loggers" (structlog/testing.py). Measured upside of caching is a
-        # dict lookup on a ~74 us line. The costs worth attacking are elsewhere: `filter_by_level`
-        # first (an 11.6x saving on a suppressed line) and no stack walking outside console/DEBUG.
+        # dict lookup on a ~51 us line. The costs worth attacking are elsewhere: `filter_by_level`
+        # first (~14x cheaper on a suppressed line) and no stack walking outside console/DEBUG.
+        # Re-measure with `scripts/bench_logging.py` before revisiting.
         cache_logger_on_first_use=False,
     )
 

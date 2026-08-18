@@ -27,7 +27,7 @@ Nothing in this table was predicted. Every row came from running the code and be
 | 3 | An unhandled exception is logged once | **Logged twice, with two full tracebacks.** Probed the stack: `ServerErrorMiddleware` → your middleware → `ExceptionMiddleware`. An `AppException` is converted *inside*, so middleware never sees it, but an unclassified error passes through **both**. | Middleware logs a lifecycle line only, no `exc_info` (§28) |
 | 4 | Every error answers in our envelope | **422 and 404 escaped entirely.** FastAPI registers its own `RequestValidationError` and `HTTPException` handlers *before* yours, so they answered `{"detail": …}` while everything else answered `{"error", "message", "error_id"}`. | Both claimed explicitly (§25) |
 | 5 | The sanitizer protects every sink | **It protected only logs.** The `DEBUG=true` response body rendered `"api_key": "sk-live-…"` **verbatim** while the log line redacted it — and a response is the *more* exposed sink. | `sanitise()` extracted as the policy; debug bodies pass through it (§21) |
-| 6 | Frame introspection is cheap; errors are rare | **`describe()` cost 40 ms** on a 22-frame traceback and 9.1 ms on a 6-frame one. Constructing one `AppException` cost **629 µs** vs `ValueError`'s 0.08 µs — 7,000× slower. `Path.resolve()` is a **syscall**, called 3× per frame, and the traceback was walked twice. | `@lru_cache` on path classification + one walk → **39 µs / 5.3 µs** (§13, §26) |
+| 6 | Frame introspection is cheap; errors are rare | **`describe()` cost 40 ms** on a 22-frame traceback and 9.1 ms on a 6-frame one. Constructing one `AppException` cost **629 µs** vs `ValueError`'s 0.08 µs — 7,000× slower. `Path.resolve()` is a **syscall**, called 3× per frame, and the traceback was walked twice. | `@lru_cache` on path classification + one walk → **26 µs / 3.6 µs** (§13, §26) |
 
 **The meta-lesson:** diagnostics are code, and untested diagnostic code fails in the one situation it
 exists for. Rows 3, 4 and 5 were all *silent* — the app returned 200s, the tests passed, and the
@@ -53,14 +53,14 @@ and benchmark the failure path, not just the happy one.**
 | 10 | [`debug_payload()`](#10-debug_payload--lines-94105) | `exceptions.py` | 94–105 |
 | 11 | [`ConfigurationError`, and the taxonomy that isn't there](#11-configurationerror--lines-108112) | `exceptions.py` | 108–112 |
 | 12 | [Docstring + constants](#12-error_contextpy-docstring--constants--lines-143) | `error_context.py` | 1–43 |
-| 13 | [`_classify` — the load-bearing cache](#13-_classify--lines-4692) | `error_context.py` | 46–92 |
-| 14 | [`CodeOrigin`](#14-codeorigin--lines-95122) | `error_context.py` | 95–122 |
-| 15 | [`_origin_from_frame` — where the class name comes from](#15-_origin_from_frame--lines-125139) | `error_context.py` | 125–139 |
-| 16 | [`capture_origin`](#16-capture_origin--lines-142166) | `error_context.py` | 142–166 |
-| 17 | [`_is_internal_frame` — the identity trick](#17-_is_internal_frame--lines-169181) | `error_context.py` | 169–181 |
-| 18 | [`_exception_chain`](#18-_exception_chain--lines-184203) | `error_context.py` | 184–203 |
-| 19 | [`first_party_frames` — innermost first](#19-first_party_frames--lines-206224) | `error_context.py` | 206–224 |
-| 20 | [`blame_frame` + `describe`](#20-blame_frame--describe--lines-227275) | `error_context.py` | 227–275 |
+| 13 | [`_classify` — the load-bearing cache](#13-_classify--lines-4693) | `error_context.py` | 46–93 |
+| 14 | [`CodeOrigin`](#14-codeorigin--lines-96123) | `error_context.py` | 96–123 |
+| 15 | [`_origin_from_frame` — where the class name comes from](#15-_origin_from_frame--lines-126140) | `error_context.py` | 126–140 |
+| 16 | [`capture_origin`](#16-capture_origin--lines-143167) | `error_context.py` | 143–167 |
+| 17 | [`_is_internal_frame` — the identity trick](#17-_is_internal_frame--lines-170182) | `error_context.py` | 170–182 |
+| 18 | [`_exception_chain`](#18-_exception_chain--lines-185204) | `error_context.py` | 185–204 |
+| 19 | [`first_party_frames` — innermost first](#19-first_party_frames--lines-207225) | `error_context.py` | 207–225 |
+| 20 | [`blame_frame` + `describe`](#20-blame_frame--describe--lines-228276) | `error_context.py` | 228–276 |
 | 21 | [Docstring + `ErrorDetailConfig`](#21-exception_handlerspy-docstring--config--lines-164) | `exception_handlers.py` | 1–64 |
 | 22 | [`_request_id`](#22-_request_id--lines-6774) | `exception_handlers.py` | 67–74 |
 | 23 | [`_log_error` — the `exc_info` discovery](#23-_log_error--lines-7785) | `exception_handlers.py` | 77–85 |
@@ -465,7 +465,7 @@ aggregator drops the whole event (the same failure mode the value caps in
 
 ---
 
-## 13. `_classify` — lines 46–92
+## 13. `_classify` — lines 46–93
 
 The most important function in the file, and it started as three functions with a 40-millisecond bug.
 
@@ -500,14 +500,23 @@ syscall. Before caching, it ran **three times per frame** (display path, first-p
 flag again from *inside* the display path), on every frame of every walk, and `describe()` walked the
 traceback twice. Measured:
 
-| | before | after | factor |
+| | pre-fix | now | factor |
 |---|---|---|---|
-| `describe()`, 5-frame traceback | 9,138 µs | **10.7 µs** | **854×** |
-| `describe()`, 22-frame traceback | 40,284 µs | **39.1 µs** | **1,030×** |
-| `AppException()` construction | 628.8 µs | **5.3 µs** | **119×** |
-| one classification, cold → warm | 353 µs | **0.062 µs** | **5,670×** |
+| `describe()`, 5-frame traceback | 9,138 µs | **7.9 µs** | ~1,160× |
+| `describe()`, 22-frame traceback | 40,284 µs | **26.1 µs** | ~1,540× |
+| `AppException()` construction | 628.8 µs | **3.6 µs** | ~175× |
+| one classification, cold → warm | 249 µs | **0.048 µs** | ~5,250× |
 
-Reproduce with `uv run python scripts/bench_error_context.py`.
+⚠️ **The "pre-fix" column is historical and cannot be re-measured** — that code is gone, and it was
+slow for *two* compounding reasons (no cache **and** a double traceback walk). What the benchmark
+*can* still prove is the cache's own contribution, by bypassing the decorator on the current code:
+
+```
+describe(), cached    :     26.24 us
+describe(), uncached  :   6674.74 us   -> 254x
+```
+
+Reproduce with `PYTHONPATH=. uv run python scripts/bench_error_context.py`.
 
 ❓ **Why is this safe to cache?** `co_filename` takes one distinct value per source file, so a process
 sees a few hundred keys — `maxsize=2048` never evicts in practice. And a file's path cannot change
@@ -549,7 +558,7 @@ conceptual boundary of the whole module and tests assert on it directly.
 
 ---
 
-## 14. `CodeOrigin` — lines 95–122
+## 14. `CodeOrigin` — lines 96–123
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -587,7 +596,7 @@ can never disagree.
 
 ---
 
-## 15. `_origin_from_frame` — lines 125–139
+## 15. `_origin_from_frame` — lines 126–140
 
 ```python
 def _origin_from_frame(frame: FrameType, lineno: int | None = None) -> CodeOrigin:
@@ -625,7 +634,7 @@ an exception would replace a useful error with a confusing one.
 
 ---
 
-## 16. `capture_origin` — lines 142–166
+## 16. `capture_origin` — lines 143–167
 
 ```python
 def capture_origin(skip_instance: object | None = None) -> CodeOrigin | None:
@@ -662,7 +671,7 @@ not None`), so a missing origin degrades the log line and breaks nothing.
 
 ---
 
-## 17. `_is_internal_frame` — lines 169–181
+## 17. `_is_internal_frame` — lines 170–182
 
 The fix for finding #1, and the cleverest fifteen lines in the three files.
 
@@ -722,7 +731,7 @@ adds such a method.
 
 ---
 
-## 18. `_exception_chain` — lines 184–203
+## 18. `_exception_chain` — lines 185–204
 
 ```python
 def _exception_chain(exc: BaseException) -> list[BaseException]:
@@ -775,7 +784,7 @@ mask.
 
 ---
 
-## 19. `first_party_frames` — lines 206–224
+## 19. `first_party_frames` — lines 207–225
 
 ```python
 def _walk(tb: TracebackType | None) -> list[CodeOrigin]:
@@ -829,7 +838,7 @@ checking the length.
 
 ---
 
-## 20. `blame_frame` + `describe` — lines 227–275
+## 20. `blame_frame` + `describe` — lines 228–276
 
 ```python
 def _blame_from(ours: list[CodeOrigin], chain: list[BaseException]) -> CodeOrigin | None:
@@ -1192,25 +1201,37 @@ type belongs to `httpx`.
 
 ## 26. Measured performance
 
-All from `uv run python scripts/bench_error_context.py` (Python 3.12.7, Windows).
+Reproduce with:
 
-### Before and after finding #6
+```bash
+PYTHONPATH=. uv run python scripts/bench_error_context.py
+```
 
-| Operation | before | after | factor |
-|---|---|---|---|
-| `describe()`, 5-frame traceback | 9,138 µs | **10.7 µs** | 854× |
-| `describe()`, 22-frame traceback | 40,284 µs | **39.1 µs** | 1,030× |
-| `describe()`, 2-link cause chain | 11,588 µs | **21.6 µs** | 537× |
-| `AppException("x")` construction | 628.8 µs | **5.3 µs** | 119× |
-| `_classify`, cold → warm | 353 µs | **0.062 µs** | 5,670× |
+⚠️ **Read these as ratios, not absolutes.** One machine (Python 3.12.7, Windows), and they drift
+**±30% between runs** depending on load. The ordering and the ratios are what the arguments rest on.
 
 ### What it costs now
 
 | Operation | cost | in context |
 |---|---|---|
-| `AppException` construction | 5.3 µs | vs `ValueError`'s 0.095 µs — **56× a bare exception** |
-| `describe()` on a typical error | 10–40 µs | vs ~70 µs to render one log line |
-| `describe()`, 62-frame traceback | 96.5 µs | the frame cap holds it here |
+| `AppException` construction | 3.6 µs | vs `ValueError`'s 0.064 µs — **~56× a bare exception** |
+| `describe()`, 5-frame traceback | 7.9 µs | the common case |
+| `describe()`, 22-frame traceback | 26.1 µs | vs ~51 µs to render one log line |
+| `describe()`, 2-link cause chain | 12.4 µs | chained wrapping is cheap |
+| `describe()`, 62-frame traceback | 64.6 µs | the frame cap holds it here |
+| `_classify`, cold → warm | 249 µs → 0.048 µs | **~5,250×** |
+
+### What finding #6 was worth, re-measurable today
+
+Bypassing the `lru_cache` on the current code, same 22-frame traceback:
+
+| | cost |
+|---|---|
+| `describe()`, cached | **26.2 µs** |
+| `describe()`, uncached | **6,674.7 µs** — **254×** |
+
+The pre-fix code was slower still (~40,000 µs) because it also walked each traceback twice. That
+figure is historical; the 254× above is the part you can reproduce.
 
 ⚠️ **Accepted debt, written down:** an `AppException` is still 56× more expensive to construct than a
 bare `Exception`, because `capture_origin` walks the stack. That is fine for an error path and **not**
@@ -1528,10 +1549,11 @@ FOUR HANDLERS (registry order is irrelevant — Starlette dispatches on MRO)
   StarletteHTTPException  -> http_exception            error_code = http_<status>
   Exception               -> unhandled_exception       500, generic message, nothing leaked
 
-MEASURED (py3.12.7 / scripts/bench_error_context.py)
-  AppException()    5.3 us   (vs ValueError 0.095 us — 56x; do NOT use for control flow)
-  describe()       10-40 us  typical; 96 us at the 62-frame cap
-  _classify warm   0.062 us  (cold 353 us — the lru_cache is load-bearing, not an optimisation)
+MEASURED (py3.12.7 / scripts/bench_error_context.py, +/-30% run to run)
+  AppException()    3.6 us   (vs ValueError 0.064 us — ~56x; do NOT use for control flow)
+  describe()        8-26 us  typical; 65 us at the 62-frame cap
+  _classify warm   0.048 us  (cold 249 us — the lru_cache is load-bearing, not an optimisation)
+  uncached          254x slower — bypass the decorator to see it
   caps             _MAX_FIRST_PARTY_FRAMES=15   _MAX_CHAIN_DEPTH=5
 
 NEVER
@@ -1586,4 +1608,4 @@ except ConfigurationError as exc:
 
 ---
 
-*Last updated: 2026-08-19 | Based on `app/core/exceptions.py` (112 lines), `app/core/error_context.py` (275 lines) and `app/core/exception_handlers.py` (213 lines) of the `production_agentic_ai` project*
+*Last updated: 2026-08-19 | Based on `app/core/exceptions.py` (112 lines), `app/core/error_context.py` (276 lines) and `app/core/exception_handlers.py` (213 lines) of the `production_agentic_ai` project*

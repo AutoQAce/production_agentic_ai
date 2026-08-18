@@ -49,9 +49,10 @@ def _classify(filename: str) -> tuple[str, bool]:
 
     🚨 **The cache is not an optimisation, it is load-bearing.** `Path.resolve()` is a filesystem
     syscall, and this used to be called three times per frame (display path, first-party flag, and
-    the flag again from inside the display path) on every frame of every walk. Measured before
-    caching: `describe()` cost **9.1 ms** on a 6-frame traceback, **40 ms** on a 23-frame one, and
-    constructing one `AppException` cost **629 us** against a plain `ValueError`'s 0.08 us.
+    the flag again from inside the display path) on every frame of every walk -- while `describe()`
+    walked each traceback twice. Together those cost ~40 ms on a 22-frame traceback. Bypassing this
+    decorator alone (see `scripts/bench_logging.py`'s sibling, `scripts/bench_error_context.py`)
+    still shows ~6,700 us against ~26 us cached: a ~250x difference on the error path.
 
     Errors arrive in bursts -- a provider outage produces thousands in a row -- so that cost landed
     exactly when the service was already degraded. `co_filename` takes one distinct value per source

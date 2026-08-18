@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import timeit
 
+from app.core import error_context
 from app.core.error_context import _MAX_FIRST_PARTY_FRAMES, _classify, describe, first_party_frames
 from app.core.exceptions import ConfigurationError
 
@@ -63,6 +64,25 @@ def main() -> None:
         print(f"  {depth + 2:3d}-frame traceback ({frames:2d} first-party kept): {cost:8.2f} us")
     chained = _chained()
     print(f"  2-link cause chain                          : {_micros(lambda: describe(chained), 5000):8.2f} us")
+
+    print()
+    print("=" * 72)
+    print("What the cache is worth: same describe(), decorator bypassed")
+    print("=" * 72)
+    exc = _held(20)
+    warm = _micros(lambda: describe(exc), 2000)
+
+    # `__wrapped__` is the undecorated function. Swapping the module global makes every caller
+    # (is_first_party / _display_path) pay a real Path.resolve() per frame, as the original did.
+    error_context._classify = _classify.__wrapped__  # type: ignore[attr-defined]
+    try:
+        cold = _micros(lambda: describe(exc), 200)
+    finally:
+        error_context._classify = _classify
+    print(f"  describe(), cached    : {warm:9.2f} us")
+    print(f"  describe(), uncached  : {cold:9.2f} us   -> {cold / warm:,.0f}x")
+    print("  NOTE: the pre-fix code was slower still (~40,000 us on this traceback) because it")
+    print("        also walked the traceback twice. That figure is historical, not reproducible here.")
 
     print()
     print("=" * 72)

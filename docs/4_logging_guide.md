@@ -23,7 +23,7 @@ They are listed first because **future-you will re-derive the wrong version othe
 |---|---|---|---|
 | 1 | `cache_logger_on_first_use=True` breaks `structlog.testing.capture_logs()` | **False since structlog 25.5.** `capture_logs()` mutates the configured processor list *in place*, with a source comment saying it does so "to not break references held by bound loggers". Caching and `capture_logs` coexist fine. | The comment inherited from the previous `logging.py` was **stale**, repeating pre-25.5 behaviour. Deleted. |
 | 2 | …so caching is safe to enable | **Also false, for a different reason.** `configure_logging()` builds a *brand-new* processors list. With caching on, a logger already used keeps the **old** list — a re-configure is silently ignored (probe logger still stamped `service: "first"` after being reconfigured to `"second"`). | Caching stays **off**, but the honest reason is *reconfiguration*, not tests-capture. |
-| 3 | `CallsiteParameterAdder` is the most expensive processor in the chain | **False.** `sanitise_event_dict` is: **11.65 µs** vs callsite's **4.61 µs** on a flat event; **38.10 µs** vs **4.84 µs** on a nested agent payload. | The decision to gate callsite still holds (it adds **41%** to a full line) — but on measured overhead, not on a false ranking. |
+| 3 | `CallsiteParameterAdder` is the most expensive processor in the chain | **False.** `sanitise_event_dict` is: **7.67 µs** vs callsite's **2.71 µs** on a flat event; **26.13 µs** vs **2.85 µs** on a nested agent payload. | The decision to gate callsite still holds (it adds **~24%** to a full line) — but on measured overhead, not on a false ranking. |
 | 4 | Pre-formatting exceptions with `format_exc_info` ruins `ConsoleRenderer`'s pretty traceback | **Not by itself.** With `rich` absent — and it *is* absent here — both paths render **byte-identical** output. The gain is conditional on installing `rich`. | Comment softened to say the benefit is conditional. The *real*, unconditional difference is on the JSON side (§8). |
 | 5 | `LoggingConfig` is a 2-field Protocol | Stale in [`3_config_py_guide.md`](./3_config_py_guide.md) — it is now **5 fields** (`LOG_LEVEL`, `LOG_FORMAT`, `PROJECT_NAME`, `VERSION`, `APP_ENV`). | Guide 3 corrected. |
 
@@ -47,16 +47,16 @@ folklore with syntax highlighting.
 | 6 | [`_MANAGED_LOGGERS` — the uvicorn takeover](#6-_managed_loggers--lines-5465) | `logging.py` | 54–65 |
 | 7 | [`_CALLSITE_PARAMETERS`](#7-_callsite_parameters--lines-6774) | `logging.py` | 67–74 |
 | 8 | [`_TAIL_PROCESSORS` + `_tail_processors_for`](#8-_tail_processors--lines-7797) | `logging.py` | 77–97 |
-| 9 | [`_wants_callsite` — the 41% decision](#9-_wants_callsite--lines-100109) | `logging.py` | 100–109 |
+| 9 | [`_wants_callsite` — the callsite decision](#9-_wants_callsite--lines-100109) | `logging.py` | 100–109 |
 | 10 | [`_service_fields` — the closure](#10-_service_fields--lines-112128) | `logging.py` | 112–128 |
 | 11 | [`_shared_processors` — chain order](#11-_shared_processors--lines-131152) | `logging.py` | 131–152 |
-| 12 | [`configure_logging` — the whole wiring](#12-configure_logging--lines-155216) | `logging.py` | 155–216 |
-| 13 | [`_take_over_managed_loggers`](#13-_take_over_managed_loggers--lines-219233) | `logging.py` | 219–233 |
-| 14 | [`get_logger`](#14-get_logger--lines-236238) | `logging.py` | 236–238 |
+| 12 | [`configure_logging` — the whole wiring](#12-configure_logging--lines-155217) | `logging.py` | 155–217 |
+| 13 | [`_take_over_managed_loggers`](#13-_take_over_managed_loggers--lines-220234) | `logging.py` | 220–234 |
+| 14 | [`get_logger`](#14-get_logger--lines-237239) | `logging.py` | 237–239 |
 | 15 | [Sanitizer docstring — the second owner](#15-sanitizer-docstring--lines-112) | `log_sanitizer.py` | 1–12 |
 | 16 | [The deny-lists and the caps](#16-the-deny-lists-and-the-caps--lines-2285) | `log_sanitizer.py` | 22–85 |
 | 17 | [The traversal](#17-the-traversal--lines-88137) | `log_sanitizer.py` | 88–137 |
-| 18 | [`sanitise` + `sanitise_event_dict` — the entry points](#18-sanitise--sanitise_event_dict--lines-140166) | `log_sanitizer.py` | 140–166 |
+| 18 | [`sanitise` + `sanitise_event_dict` — the entry points](#18-sanitise--sanitise_event_dict--lines-140164) | `log_sanitizer.py` | 140–164 |
 | 19 | [Measured performance](#19-measured-performance) | both | — |
 | 20 | [SOLID scorecard](#20-solid-scorecard) | both | — |
 | 21 | [Where this fits in the 7 layers](#21-where-this-fits-in-the-7-layers) | both | — |
@@ -179,7 +179,7 @@ from app.core.log_sanitizer import sanitise_event_dict
 |---|---|
 | `from __future__ import annotations` | lets `dict[str, int \| None]` (line 54) work as an annotation without runtime cost |
 | `import logging` | **this file is named `logging.py`** and still imports stdlib `logging` |
-| `sys` | exactly one use: `sys.stdout` at line 194 |
+| `sys` | exactly one use: `sys.stdout` at line 195 |
 | `Protocol, runtime_checkable` | the ISP boundary, §5 |
 | `ConfigurationError` | raised by `_tail_processors_for`; the same exception config's guard raises |
 | `sanitise_event_dict` | the *only* thing imported from the sanitizer — the whole coupling |
@@ -348,7 +348,7 @@ machine-readable pages. Ask for `console`, you get the human-readable tray. Ask 
 building refuses to open rather than quietly using the wrong tray.
 
 🔧 **Technical:** a dict from `LOG_FORMAT` to the tuple of processors passed as
-`ProcessorFormatter(processors=[remove_processors_meta, *tail])` at line 191.
+`ProcessorFormatter(processors=[remove_processors_meta, *tail])` at line 192.
 
 🚨 **This is where belief #4 broke.** The comment originally claimed pre-formatting with
 `format_exc_info` *disables* ConsoleRenderer's rich traceback. Measured, with `rich` not installed:
@@ -414,9 +414,9 @@ but it does mean `Settings` can hold a `LOG_FORMAT` that will never render.
 def _wants_callsite(config: LoggingConfig) -> bool:
     """Whether to pay for file/function/line on every line.
 
-    `CallsiteParameterAdder` walks the stack per event. Measured on this chain it costs ~30 us of a
-    ~74 us log line -- about 41% overhead -- and in an agentic system log volume scales with tool
-    calls and streamed steps, not with requests. So it is on where a human is reading the output
+    `CallsiteParameterAdder` walks the stack per event. Measured via `scripts/bench_logging.py` it
+    adds ~12 us to a ~51 us log line (~24% overhead), and in an agentic system log volume scales with
+    tool calls and streamed steps, not with requests. So it is on where a human is reading the output
     (console) or has explicitly asked for detail (DEBUG), and off otherwise, where `logger` +
     `event` already say where a line came from and any error carries a full structured traceback.
     """
@@ -428,35 +428,35 @@ most expensive processor in the chain." Measured, per call, on a realistic 7-fie
 
 | Processor | µs/call (flat) | µs/call (nested payload) |
 |---|---|---|
-| `sanitise_event_dict` | **11.65** | **38.10** |
-| `JSONRenderer` | 4.71 | — |
-| `CallsiteParameterAdder` | 4.61 | 4.84 |
-| `TimeStamper(iso, utc)` | 2.79 | — |
-| `UnicodeDecoder` | 0.76 | — |
-| `StackInfoRenderer` | 0.41 | — |
-| `merge_contextvars` | 0.37 | — |
-| `add_log_level` | 0.23 | — |
+| `sanitise_event_dict` | **7.67** | **26.13** |
+| `JSONRenderer` | 2.79 | — |
+| `CallsiteParameterAdder` | 2.71 | 2.85 |
+| `TimeStamper(iso, utc)` | 2.04 | — |
+| `UnicodeDecoder` | 0.55 | — |
+| `StackInfoRenderer` | 0.27 | — |
+| `merge_contextvars` | 0.23 | — |
+| `add_log_level` | 0.16 | — |
 
-Callsite is **third**. The sanitizer is 2.5× more expensive flat and 8× more expensive on nested
+Callsite is **third**. The sanitizer is ~3× more expensive flat and ~9× more expensive on nested
 data — and it *cannot* be gated, because it is the security guarantee.
 
 ❓ **So does the decision survive?** Yes, on the end-to-end number rather than the ranking:
 
 ```
-LOG_LEVEL=INFO    73.62 us/line   (production default, callsite OFF)
-LOG_LEVEL=DEBUG  103.55 us/line   (callsite ON)
--> callsite adds 29.94 us/line (41% overhead)
+LOG_LEVEL=INFO    51.07 us/line   (production default, callsite OFF)
+LOG_LEVEL=DEBUG   63.09 us/line   (callsite ON)
+-> callsite adds 12.02 us/line (24% overhead)
 ```
 
-41% of every line, forever, for information you can usually get from `logger` + `event`. Gating it
-is right; the reasoning just had to be rebuilt on real numbers.
+A quarter of every line, forever, for information you can usually get from `logger` + `event`.
+Gating it is right; the reasoning just had to be rebuilt on real numbers.
 
 ❓ **Why `LOG_FORMAT == "console" or LOG_LEVEL == "DEBUG"` rather than a dedicated setting:** a
 `LOG_CALLSITE` env var is a third knob for a decision nobody will ever set independently — if you
 are reading console output or you asked for DEBUG, you want file and line. Deriving it means one
 fewer thing in `.env.example` that can be misconfigured.
 
-⚠️ **The coupling this creates:** `LOG_LEVEL=DEBUG` in production now silently costs 41% more per
+⚠️ **The coupling this creates:** `LOG_LEVEL=DEBUG` in production now silently costs ~24% more per
 line than `INFO`. That is the correct trade (you asked for detail) but it is *not obvious from the
 env var*, which is why `configure_logging` reports `callsite_info` in its startup line (§12).
 Verified by `test_callsite_info_is_omitted_in_json_but_present_at_debug`.
@@ -498,7 +498,7 @@ is it the version we just deployed?" — and you cannot answer it. The rollback 
 
 ❓ **Why a factory and not a plain processor reading `get_settings()`:** a plain processor would call
 `get_settings()` (an `lru_cache` lookup plus attribute access) **per log line**. The closure reads
-config once. At 14,188 lines/sec that is a measurable difference for zero benefit.
+config once. At ~19,500 lines/sec that is a measurable difference for zero benefit.
 
 ❓ **Why `{**fields, **event_dict}` and not `event_dict.update(fields)`:** two reasons. Ordering —
 dict insertion order is JSON key order, so `service`/`version`/`env` lead the line where a human
@@ -507,7 +507,7 @@ deliberately passes `env="sandbox"` is not silently overwritten by the process's
 
 ⚠️ **The cost, stated honestly:** it allocates a new dict per event instead of mutating. structlog's
 own processors mutate for speed. Measured at **0.37 µs** for the comparable `merge_contextvars`, this
-is noise next to the sanitizer's 11.65 µs — so the immutability is free *here*. It would not be free
+is noise next to the sanitizer's 7.67 µs — so the immutability is free *here*. It would not be free
 in a processor that ran on a hot inner loop.
 
 ---
@@ -580,7 +580,7 @@ middleware reaches a **foreign** stdlib line —
  'request_id': 'req-123', 'logger': 'some.dependency', 'level': 'warning', ...}
 ```
 
-— which means fields arrive from paths this file never sees. `ExtraAdder` (line 190) promotes a
+— which means fields arrive from paths this file never sees. `ExtraAdder` (line 191) promotes a
 dependency's `extra={...}` into real fields. If the sanitizer ran anywhere but last, a third-party
 library could put a token into the output through a door your deny-list never guarded.
 
@@ -590,18 +590,18 @@ library could put a token into the output through a door your deny-list never gu
 
 ---
 
-## 12. `configure_logging` — lines 155–216
+## 12. `configure_logging` — lines 155–217
 
 The function everything above exists to serve. Taken in five parts.
 
-### 12a. The structlog chain (lines 160–183)
+### 12a. The structlog chain (lines 160–170)
 
 ```python
     structlog.configure(
         processors=[
             # First, so a suppressed line costs one `isEnabledFor()` call instead of the whole
-            # chain. At DEBUG-heavy call sites in an agent loop that is the difference between a
-            # free log statement and a measurable one.
+            # chain -- measured ~4 us against ~57 us for an emitted line. At DEBUG-heavy call sites
+            # in an agent loop that is the difference between a free log statement and a real one.
             structlog.stdlib.filter_by_level,
             *shared,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
@@ -613,8 +613,8 @@ The function everything above exists to serve. Taken in five parts.
 ❓ **Why `filter_by_level` first — measured:**
 
 ```
-suppressed INFO line:      7.13 us
-emitted   WARNING line:   82.72 us      -> 11.6x cheaper
+suppressed INFO line:      4.00 us
+emitted   WARNING line:   56.89 us      -> 14.2x cheaper
 ```
 
 A `logger.debug(...)` left in an agent's inner loop costs 7 µs instead of 83 µs when the level is
@@ -629,7 +629,7 @@ Full key set: `critical, debug, error, exception, info, notset, warn, warning`.
 `logging`, where `ProcessorFormatter` unpacks it. That handoff is what lets one renderer serve both
 pipelines.
 
-### 12b. The caching decision (lines 171–182)
+### 12b. The caching decision (lines 171–183)
 
 ```python
         # False because caching freezes a logger's processor list on first use, and a later
@@ -641,8 +641,9 @@ pipelines.
         # Note it does NOT break `structlog.testing.capture_logs()` -- that was true before
         # structlog 25.5, which now mutates the configured list in place specifically "to not break
         # references held by bound loggers" (structlog/testing.py). Measured upside of caching is a
-        # dict lookup on a ~74 us line. The costs worth attacking are elsewhere: `filter_by_level`
-        # first (an 11.6x saving on a suppressed line) and no stack walking outside console/DEBUG.
+        # dict lookup on a ~51 us line. The costs worth attacking are elsewhere: `filter_by_level`
+        # first (~14x cheaper on a suppressed line) and no stack walking outside console/DEBUG.
+        # Re-measure with `scripts/bench_logging.py` before revisiting.
         cache_logger_on_first_use=False,
 ```
 
@@ -683,7 +684,7 @@ with a session-scoped configuration), then caching becomes free and should be tu
 blocker is the test strategy, not production.** Write that down, because the code alone makes it look
 like a performance decision.
 
-### 12c. The foreign chain (lines 185–192)
+### 12c. The foreign chain (lines 186–193)
 
 ```python
     formatter = structlog.stdlib.ProcessorFormatter(
@@ -734,9 +735,9 @@ AttributeError: 'str' object has no attribute 'copy'
 `ProcessorFormatter` needs the event **dict**. So "make logging async by putting a queue in front of
 it" is not available here without a custom handler that preserves `msg`. Not a problem today (a
 `StreamHandler` to stdout is fast and the pipe is buffered), but it is the thing you'd reach for at
-14,188 lines/sec, and it does not work.
+~19,500 lines/sec, and it does not work.
 
-### 12d. Handler and root (lines 194–203)
+### 12d. Handler and root (lines 195–204)
 
 ```python
     handler = logging.StreamHandler(sys.stdout)
@@ -766,7 +767,7 @@ nothing at all under uvicorn.
 another thread logs is a race. Correct at startup, wrong if ever called from a request handler. It
 never is — `create_app()` calls it once.
 
-### 12e. Warnings and the startup receipt (lines 205–216)
+### 12e. Warnings and the startup receipt (lines 206–217)
 
 ```python
     _take_over_managed_loggers()
@@ -806,7 +807,7 @@ operational payoff.
 
 ---
 
-## 13. `_take_over_managed_loggers` — lines 219–233
+## 13. `_take_over_managed_loggers` — lines 220–234
 
 ```python
 def _take_over_managed_loggers() -> None:
@@ -841,12 +842,12 @@ lines **still emit**, because `uvicorn.error` says INFO is fine and root's handl
 entries. Rebinding is one line and cannot half-succeed.
 
 ⚠️ **Ordering constraint, undocumented in the code:** this must run **after** `root_logger` is set up
-(it is — line 205, after 202). It is order-dependent on nothing else, but a refactor that hoists it
+(it is — line 206, after 203). It is order-dependent on nothing else, but a refactor that hoists it
 above the root handler assignment would leave a window with no handler anywhere.
 
 ---
 
-## 14. `get_logger` — lines 236–238
+## 14. `get_logger` — lines 237–239
 
 ```python
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
@@ -886,8 +887,8 @@ processors and by third-party libraries logging through stdlib.
 """
 ```
 
-The "walking it twice" claim in this docstring is the one that verification **supported**: at 11.65 µs
-flat and 38.10 µs nested, the traversal is the most expensive step in the chain (§19), so a second
+The "walking it twice" claim in this docstring is the one that verification **supported**: at 7.67 µs
+flat and 26.13 µs nested, the traversal is the most expensive step in the chain (§19), so a second
 one would be the worst available change.
 
 ---
@@ -1076,7 +1077,7 @@ or tuple type.
 
 ---
 
-## 18. `sanitise` + `sanitise_event_dict` — lines 140–166
+## 18. `sanitise` + `sanitise_event_dict` — lines 140–164
 
 ```python
 def sanitise(mapping: Mapping[str, Any]) -> dict[str, Any]:
@@ -1143,44 +1144,53 @@ all closed, and `prompt_tokens` survives.
 
 ## 19. Measured performance
 
-Every number here came from `timeit` on this machine (Python 3.12.7, structlog 26.1.0, Windows).
-They are **relative** guides, not SLOs.
+Reproduce every figure below with:
+
+```bash
+PYTHONPATH=. uv run python scripts/bench_logging.py
+```
+
+⚠️ **Read these as ratios, not absolutes.** They come from one machine (Python 3.12.7, structlog
+26.1.0, Windows) and drift **±30% between runs** depending on load — an earlier session of the same
+benchmark reported 73.62 µs/line where the run below reports 51.07. What is stable, and what every
+argument in this guide actually rests on, is the **ordering** and the **ratios**. If you are checking
+whether a change made things worse, re-run the script rather than comparing against these figures.
 
 ### One log line, production settings
 
 ```
-70.48 us/line   ->  14,188 lines/sec on one core
+51.07 us/line   ->  19,582 lines/sec on one core
 ```
 
 ### Where that time goes
 
 | Processor | flat event | nested agent payload |
 |---|---|---|
-| `sanitise_event_dict` | 11.65 µs | 38.10 µs |
-| `JSONRenderer` | 4.71 µs | — |
-| `CallsiteParameterAdder` | 4.61 µs | 4.84 µs |
-| `TimeStamper(iso, utc)` | 2.79 µs | — |
-| `UnicodeDecoder` | 0.76 µs | — |
-| `StackInfoRenderer` | 0.41 µs | — |
-| `merge_contextvars` | 0.37 µs | — |
-| `add_log_level` | 0.23 µs | — |
+| `sanitise_event_dict` | 7.67 µs | 26.13 µs |
+| `JSONRenderer` | 2.79 µs | — |
+| `CallsiteParameterAdder` | 2.71 µs | 2.85 µs |
+| `TimeStamper(iso, utc)` | 2.04 µs | — |
+| `UnicodeDecoder` | 0.55 µs | — |
+| `StackInfoRenderer` | 0.27 µs | — |
+| `merge_contextvars` | 0.23 µs | — |
+| `add_log_level` | 0.16 µs | — |
 
 ### The three decisions these numbers justify
 
 | Decision | Evidence |
 |---|---|
-| `filter_by_level` first | suppressed line **7.13 µs** vs emitted **82.72 µs** → **11.6× cheaper** |
-| callsite gated to console/DEBUG | **73.62 µs** → **103.55 µs** with it on → **+41%** |
-| no logger caching | upside is one dict lookup on a 74 µs line; cost is stale config on reconfigure |
+| `filter_by_level` first | suppressed line **4.00 µs** vs emitted **56.89 µs** → **14.2× cheaper** |
+| callsite gated to console/DEBUG | **51.07 µs** → **63.09 µs** with it on → **+24%** |
+| no logger caching | upside is one dict lookup on a ~51 µs line; cost is stale config on reconfigure |
 
 ### The price of the security guarantee
 
 | Payload | line total | sanitizer share |
 |---|---|---|
-| flat (7 scalar fields) | 76.05 µs | 9.45 µs — **12.4%** |
-| nested (8 messages × 400 chars) | 117.55 µs | 33.75 µs — **28.7%** |
+| flat (7 scalar fields) | 52.37 µs | 7.82 µs — **14.9%** |
+| nested (8 messages × 400 chars) | 83.23 µs | 28.13 µs — **33.8%** |
 
-⚠️ **Write this down as accepted debt.** Nearly a third of the cost of logging a realistic agent
+⚠️ **Write this down as accepted debt.** A third of the cost of logging a realistic agent
 payload is the sanitizer. That is the correct trade — the alternative is leaking credentials — but if
 logging ever shows up in a profile, **this** is the line item, and the fix is to log smaller payloads
 rather than to weaken the traversal.
@@ -1231,7 +1241,7 @@ code, and it cannot accumulate state between events.
          ▼                                  ▼
   ┌──────────────────┐            ┌──────────────────────┐
   │ filter_by_level  │            │  ExtraAdder()        │  ← extra={} becomes fields
-  │  (11.6x saving)  │            └──────────┬───────────┘
+  │  (14x cheaper)   │            └──────────┬───────────┘
   └────────┬─────────┘                       │
            └──────────────┬──────────────────┘
                           ▼
@@ -1366,11 +1376,12 @@ REDACTION RULES
   capped             strings >2000 chars, collections >50 items, nesting >6 deep
   untouched          keys starting with "_", exc_info, stack_info
 
-MEASURED (this machine, py3.12.7 / structlog 26.1)
-  70.48 us/line, 14,188 lines/sec       production settings
-  7.13 us  vs  82.72 us                 suppressed vs emitted   (11.6x — filter_by_level first)
-  73.62 us -> 103.55 us                 callsite OFF -> ON      (+41%)
-  sanitizer = 12.4% of a flat line, 28.7% of a nested agent payload
+MEASURED (scripts/bench_logging.py, py3.12.7 / structlog 26.1)
+  51.07 us/line, 19,582 lines/sec       production settings
+  4.00 us  vs  56.89 us                 suppressed vs emitted   (14.2x — filter_by_level first)
+  51.07 us -> 63.09 us                  callsite OFF -> ON      (+24%)
+  sanitizer = 14.9% of a flat line, 33.8% of a nested agent payload
+  (single machine, +/-30% run to run — re-run scripts/bench_logging.py, don't trust the digits)
 
 NEVER
   x import logging; logging.info(...)          bypasses structlog; no context, no redaction
@@ -1389,9 +1400,10 @@ NEVER
 
 ```bash
 uv run pytest tests/test_logging.py -q        # 31 tests
-uv run pytest -q                              # 55 tests, app/ at 100% coverage
+uv run pytest -q                              # 82 tests, app/ at 99.55% coverage
 uv run ruff check . && uv run ruff format --check .
-uv run mypy app                                # 1 pre-existing error in main.py:44 (FastAPI typing)
+uv run mypy app                                # clean, 19 files
+PYTHONPATH=. uv run python scripts/bench_logging.py   # every figure in §19
 
 # see the real production shape
 LOG_FORMAT=json uv run python -c "from app.main import create_app; create_app()"
@@ -1417,8 +1429,9 @@ get_logger('demo').info('llm_call', api_key='sk-LEAK', prompt_tokens=812)"
 | [`app/core/error_context.py`](../app/core/error_context.py) | produces the `blame`/`failed_at`/`app_traceback` fields these log lines carry |
 | [`app/main.py`](../app/main.py) | calls `configure_logging(settings)` inside `create_app()` |
 | [`tests/test_logging.py`](../tests/test_logging.py) | 31 tests; every claim in this guide is asserted or measured there |
+| [`scripts/bench_logging.py`](../scripts/bench_logging.py) | reproduces every figure in §19 |
 | [`.env.example`](../.env.example) | `LOG_LEVEL`, `LOG_FORMAT` — see [`1_env_guide.md`](./1_env_guide.md) |
 
 ---
 
-*Last updated: 2026-08-19 | Based on `app/core/logging.py` (238 lines) and `app/core/log_sanitizer.py` (154 lines) of the `production_agentic_ai` project*
+*Last updated: 2026-08-19 | Based on `app/core/logging.py` (239 lines) and `app/core/log_sanitizer.py` (164 lines) of the `production_agentic_ai` project*
