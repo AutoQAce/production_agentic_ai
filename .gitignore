@@ -20,3 +20,14 @@ htmlcov/
 .env
 .env.*
 !.env.example
+
+# Personal study workspace — journals, templates and the learning toolkit.
+# Kept local; the repo ships the code and docs/ only.
+.claude/
+_index.md
+learning.md
+concepts_learning_template.md
+adr_template.md
+AGENTIC_AI_PRODUCTION_BIBLE.md
+production_readiness_checklist.md
+CLAUDE.md
