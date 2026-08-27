@@ -89,13 +89,14 @@ asyncio_default_fixture_loop_scope = "function"
 line-length = 119
 exclude = ["migrations", "*.ipynb", ".venv"] # tests/ stays linted so per-file-ignores below can apply
 lint.select = ["E", "F", "I", "UP", "B", "ERA", "S"]
-lint.ignore = ["E501", "UP006", "UP007", "UP035"]
+lint.ignore = ["E501", "UP006", "UP007", "UP035", "UP038"] # UP038: `isinstance(x, A | B)` builds a union object per call, slower than the tuple form; deprecated upstream
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "F401"]
+"sandbox/*" = ["ERA", "S", "T201"] # scratch scripts: commented-out code and print() are the point
 "tests/*" = ["UP", "S101", "S105", "S106"] # S101 = bare `assert`, the whole point of a test; S105/S106 = fake secrets in fixtures
 
 [tool.coverage.run]
@@ -113,4 +114,4 @@ warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
-exclude = ["^(migrations|evals|scripts|tests)/"]  # anchored: only these top-level dirs, not any path containing the word
+exclude = ["^(migrations|evals|sandbox|scripts|tests)/"]  # anchored: only these top-level dirs, not any path containing the word
