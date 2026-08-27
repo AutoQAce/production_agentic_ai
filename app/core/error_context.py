@@ -1,4 +1,8 @@
-"""Stack introspection: turning a traceback into the answer to "where in *my* code did this fail?".
+"""
+Only job of this module is to turn a traceback into "go read this line."
+Nothing else in the file matters. Every design decision below is downstream of that one sentence.
+
+--- Stack introspection: turning a traceback into the answer to "where in *my* code did this fail?".
 
 Separate from `exceptions.py` (which owns the failure *taxonomy*) and `exception_handlers.py` (which
 owns logging and the HTTP response) because this is a third, independent job: reading frame objects
@@ -17,9 +21,33 @@ three:
 
 The full traceback is still logged (see `exception_handlers.py`); these are the *indexable* summary
 fields, so "every failure in `LLMService.invoke`" is a log query rather than an afternoon of grepping.
+
+Here's what you'd write on day one:
+
+def blame(exc):
+    tb = exc.__traceback__
+    while tb.tb_next:          # walk to the deepest frame
+        tb = tb.tb_next
+    return f"{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}"
+
+Run it on a real LLM timeout and you get:
+
+/home/app/.venv/lib/python3.12/site-packages/httpx/_transports/default.py:101
+
+That is true and useless. The deepest frame is almost never yours — your code called httpx which called ssl which raised. A production agent request is 40+ frames: uvicorn → starlette → fastapi → your endpoint → your service → langchain → httpx → ssl. Yours are the four in the middle.
+
+Everything in this file exists to turn that line into:
+
+app/services/llm.py:42 in LLMService.invoke
+
+The whole module is one idea: filter the stack down to frames you own, then take the deepest one. The other 250 lines are the edge cases that make that filter correct and cheap.
+
+
 """
 
-from __future__ import annotations
+from __future__ import (
+    annotations,  # don't try to understand my type labels right now, just write them down and move on.
+)
 
 import sys
 import traceback
@@ -257,7 +285,7 @@ def describe(exc: BaseException) -> dict[str, Any]:
     separately by the caller via `exc_info`, so this dict stays small enough to keep in a log
     aggregator's indexed fields while the traceback lives in the message body.
     """
-    chain = _exception_chain(exc)
+    chain = _exception_chain(exc)  # builld what caused what chain?
     # One walk, reused for both the blame frame and the app_traceback list.
     ours = first_party_frames(exc)
     blame = _blame_from(ours, chain)

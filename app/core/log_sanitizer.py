@@ -64,7 +64,11 @@ _SENSITIVE_KEYS = frozenset(
 _SENSITIVE_FRAGMENTS = (
     "apikey",
     "authorization",
+    "authtoken",
+    "bearertoken",
+    "cooki",  # truncated on purpose: covers "cookie" and "cookies" without listing both
     "credential",
+    "creditcard",
     "passphrase",
     "password",
     "privatekey",
