@@ -18,8 +18,8 @@ from structlog.testing import capture_logs
 from app.core.config import get_settings
 from app.core.exceptions import ConfigurationError
 from app.core.log_sanitizer import REDACTED, sanitise_event_dict
-from app.core.logging import configure_logging, get_logger
-from app.main import app
+from app.core.logging import configure_logging, get_logger, report_bootstrap_error
+from app.main import app, create_app
 
 client = TestClient(app)
 
@@ -273,3 +273,56 @@ def test_health_request_emits_lifecycle_logs_with_request_id() -> None:
     assert finished["request_id"] == resp.headers["X-Request-ID"]
     assert finished["method"] == "GET"
     assert finished["path"] == "/health"
+
+
+# --------------------------------------------------------------------------------------
+# Bootstrap error reporting -- the window before configure_logging() has run
+# --------------------------------------------------------------------------------------
+
+
+def test_bootstrap_error_surfaces_the_hint_and_context_the_traceback_drops(capsys) -> None:
+    # The whole point: `str(exc)` is only the message, so a bare traceback tells an operator they
+    # are wrong without telling them what right looks like. These fields are the difference.
+    exc = ConfigurationError(
+        "Unknown APP_ENV: 'prd'",
+        hint="add it to ENVIRONMENT_TIERS with the policy tier it belongs to",
+        known_environments=["development", "production"],
+    )
+
+    report_bootstrap_error(exc)
+
+    err = capsys.readouterr().err
+    assert "STARTUP FAILED" in err
+    assert "configuration_error: Unknown APP_ENV: 'prd'" in err
+    assert "add it to ENVIRONMENT_TIERS" in err
+    assert "known_environments" in err
+    assert "production" in err
+    # Correlates this crash with a log line if one was ever emitted for it.
+    assert exc.error_id in err
+
+
+def test_bootstrap_error_redacts_secrets_because_stderr_is_a_sink_too(capsys) -> None:
+    exc = ConfigurationError("bad config", api_key="sk-live-do-not-log", password=SecretStr("hunter2"))
+
+    report_bootstrap_error(exc)
+
+    err = capsys.readouterr().err
+    assert "sk-live-do-not-log" not in err
+    assert "hunter2" not in err
+    assert REDACTED in err
+
+
+def test_create_app_reports_bootstrap_failure_and_still_refuses_to_start(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("APP_ENV", "prd")  # a typo for "prod" -- rejected, never defaulted
+    get_settings.cache_clear()
+    try:
+        # Reporting must not become swallowing: the process still has to die.
+        with pytest.raises(ConfigurationError):
+            create_app()
+
+        err = capsys.readouterr().err
+        assert "STARTUP FAILED" in err
+        assert "ENVIRONMENT_TIERS" in err
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()

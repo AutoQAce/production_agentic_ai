@@ -30,6 +30,13 @@ from typing import Any
 from app.core.error_context import CodeOrigin, capture_origin
 
 
+# Must stay on plain `Exception`. Pydantic converts a `ValueError`/`AssertionError` raised inside a
+# validator into its own `ValidationError`; anything else it lets through untouched. `Settings`
+# raises `ConfigurationError` from a `@model_validator`, so rebasing this class on `ValueError` --
+# tempting, since "bad value -> ValueError" is the usual Python convention -- would mean `main.py`'s
+# `except AppException` no longer matches, silently removing the startup diagnostics. Nothing else
+# breaks and nothing warns you. `tests/test_logging.py` fails if this changes; see
+# `docs/6_core_wiring_guide.md` section 9.
 class AppException(Exception):
     """Base for every domain exception in this app.
 

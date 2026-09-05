@@ -14,7 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.exception_handlers import build_exception_handlers
-from app.core.logging import configure_logging, get_logger
+from app.core.exceptions import AppException
+from app.core.logging import configure_logging, get_logger, report_bootstrap_error
 from app.core.middleware import RequestContextMiddleware
 
 logger = get_logger(__name__)
@@ -22,7 +23,17 @@ logger = get_logger(__name__)
 
 def create_app() -> FastAPI:
     """Application factory — build and configure the FastAPI instance."""
-    settings = get_settings()
+    # The one window with no log pipeline: settings must be read before logging can be configured,
+    # because logging is configured *from* settings. So a ConfigurationError raised here has no sink
+    # yet, and the default traceback shows only its message -- discarding the hint and valid values
+    # it carries. Report, then re-raise: a misconfigured process must still refuse to start.
+    # See decisions/0001-bootstrap-error-reporting.md.
+    try:
+        settings = get_settings()
+    except AppException as exc:
+        report_bootstrap_error(exc)
+        raise
+
     configure_logging(settings)
 
     app = FastAPI(

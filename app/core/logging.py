@@ -30,8 +30,8 @@ from typing import Protocol, runtime_checkable
 
 import structlog
 
-from app.core.exceptions import ConfigurationError
-from app.core.log_sanitizer import sanitise_event_dict
+from app.core.exceptions import AppException, ConfigurationError
+from app.core.log_sanitizer import sanitise, sanitise_event_dict
 
 
 @runtime_checkable
@@ -237,3 +237,42 @@ def _take_over_managed_loggers() -> None:
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """Return a structlog logger bound to `name` -- the one call sites use (DIP)."""
     return structlog.get_logger(name)
+
+
+# Keys already shown in the headline line, so they are not repeated in the detail block below.
+_BOOTSTRAP_HEADLINE_KEYS = frozenset({"error_code", "message"})
+
+
+def report_bootstrap_error(exc: AppException) -> None:
+    """Write a startup failure to stderr, for the window *before* `configure_logging()` has run.
+
+    `main.py` has to read settings before it can configure logging, because the pipeline is
+    configured from them (`LOG_LEVEL`, `LOG_FORMAT`). That leaves one window at process start with
+    no pipeline at all -- and the single failure family guaranteed to land in it is the
+    `ConfigurationError` that reading settings raises.
+
+    Python's default traceback renders `str(exc)`, which is only `message`. Everything an
+    `AppException` deliberately carries for exactly this moment -- `hint`, the valid values, the
+    offending environment, `raised_at` -- is built, attached, and then thrown away. The operator
+    learns they are wrong but not what right looks like, while the process holds the answer. This
+    function is the missing mouth; see `decisions/0001-bootstrap-error-reporting.md`.
+
+    **Plain text, not JSON**, because the only reader of this output is a human watching a container
+    fail to start. **Sanitised anyway**, because stderr in a container is scraped by the same
+    aggregator as stdout -- it is a third sink, and `log_sanitizer` exists on the premise that a
+    rule guarding only some sinks is a rule with a hole in it.
+
+    Reports only; it never recovers. The caller re-raises, and the process still dies.
+    """
+    context = sanitise(exc.log_context())
+    lines = [
+        "",
+        "=" * 72,
+        "STARTUP FAILED -- the application did not begin serving.",
+        "=" * 72,
+        f"  {exc.error_code}: {exc.message}",
+    ]
+    lines.extend(f"  {key}: {value}" for key, value in context.items() if key not in _BOOTSTRAP_HEADLINE_KEYS)
+    lines.append("")
+    # `flush` because the caller re-raises immediately and the interpreter is on its way down.
+    print("\n".join(lines), file=sys.stderr, flush=True)
