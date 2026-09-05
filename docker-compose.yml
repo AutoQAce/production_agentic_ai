@@ -16,7 +16,12 @@ services:
     restart: unless-stopped
 
   db:
-    image: postgres:16-alpine
+    # pgvector, not plain postgres:16-alpine, and swapped now while the volume is still empty.
+    # Two reasons: Step 5's long-term memory needs the vector extension anyway, and the alpine
+    # image is musl-based while this one is Debian/glibc -- same PG major, but the two sort strings
+    # differently, so text indexes built under one and read under the other can silently miss rows
+    # on an index scan until a REINDEX. Free today, an afternoon once there is data.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mydb}
       POSTGRES_USER: ${POSTGRES_USER:-myuser}

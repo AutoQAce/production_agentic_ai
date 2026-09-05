@@ -1,0 +1,28 @@
+# Docker does NOT read .gitignore. Without this file, the Dockerfile's `COPY . .` bakes every
+# .env file -- including the one holding live OpenAI/Anthropic/Mistral/Tavily/LangSmith keys --
+# plus .git and .venv into an image layer, where `docker history` reads them straight back out.
+# Bible Step 16 DoD: "Zero secrets in image or env dumps."
+#
+# **Default-deny.** Everything is excluded, then runtime needs are added back. That direction is
+# deliberate: a new secret file added to the repo next month is excluded automatically, whereas a
+# denylist would ship it silently. The cost is that a forgotten *runtime* file breaks the build --
+# a loud failure, which is the trade you want from a control whose job is preventing a quiet leak.
+*
+
+# --- what the runtime actually needs ---
+!app
+!pyproject.toml
+!uv.lock
+
+# Alembic's migrations/ directory joins the list above when Step 2 adds it -- the app will fail to
+# start without it, so the omission announces itself rather than lurking.
+
+# --- junk that lives *inside* the paths re-included above ---
+**/__pycache__
+**/*.pyc
+**/*.pyo
+
+# Note: no .env file reaches the image, by design. Bible Step 1 -- ".env is dev-only; prod secrets
+# go to Azure Key Vault (Step 16)." Compose injects .env.development as real environment variables
+# rather than as a file, and config.py skips absent .env files silently while real process env vars
+# take highest precedence -- so this works out of the box in both places.
