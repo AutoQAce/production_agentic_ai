@@ -1,0 +1,5 @@
+# Shell scripts must keep LF endings. `core.autocrlf=true` is set on this machine, so without this
+# rule Git checks `docker-entrypoint.sh` out with CRLF, `COPY . .` bakes the CR into the image, and
+# Linux treats it as part of the interpreter path: `/bin/sh^M: bad interpreter: No such file or
+# directory`. The container then fails to start for a reason that has nothing to do with the code.
+*.sh text eol=lf

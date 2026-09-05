@@ -28,5 +28,12 @@ COPY --from=builder /opt/venv /opt/venv
 COPY . .
 
 EXPOSE 8000
+
+# Refuse to start without an explicit APP_ENV. Python cannot make this check -- by the time it
+# runs, os.getenv's fallback has already erased the difference between unset and 'development'.
+# See the script for the full reasoning.
+RUN chmod +x /app/docker-entrypoint.sh
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
 # uvloop is Linux-only and present here (the image is Linux), so uvicorn will use it automatically.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

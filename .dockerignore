@@ -13,6 +13,7 @@
 !app
 !pyproject.toml
 !uv.lock
+!docker-entrypoint.sh
 
 # Alembic's migrations/ directory joins the list above when Step 2 adds it -- the app will fail to
 # start without it, so the omission announces itself rather than lurking.
