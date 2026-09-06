@@ -45,6 +45,30 @@ make docker-up
 
 Requires [uv](https://docs.astral.sh/uv/). `pip` is not supported; it bypasses the lockfile.
 
+Applying the database schema (Postgres must be up):
+
+```bash
+POSTGRES_HOST=localhost uv run alembic upgrade head
+```
+
+`POSTGRES_HOST` is overridden because the default, `db`, is the compose service name — it resolves
+inside the network but not from your host, where the published port is on `localhost`. Inside a
+container the default is already correct.
+
+### Secrets
+
+**`.env` files are a development convenience and never ship.** They are gitignored, excluded from
+the Docker build context by `.dockerignore`, and no `.env` is present in a built image — verified,
+not assumed. Locally, `config.py` loads them in a precedence cascade; in every deployed
+environment the same settings arrive as real environment variables instead, which take priority
+over any file.
+
+In production those variables are sourced from **Azure Key Vault via managed identity** (Bible
+Step 16) — never baked into the image, committed to the repo, or pasted into CI logs. The startup
+guard in `config.py` refuses to boot a staging or production tier on placeholder secrets, so a
+half-configured deployment fails loudly at start rather than serving traffic signed with
+`change-me`.
+
 ---
 
 ## What's actually interesting here

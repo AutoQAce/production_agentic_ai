@@ -14,9 +14,12 @@
 !pyproject.toml
 !uv.lock
 !docker-entrypoint.sh
+!migrations
+!alembic.ini
 
-# Alembic's migrations/ directory joins the list above when Step 2 adds it -- the app will fail to
-# start without it, so the omission announces itself rather than lurking.
+# migrations/ + alembic.ini ship in the image on purpose: `alembic upgrade head` is run from this
+# same image as a deploy-time job, so the schema and the code that expects it are always the same
+# build. Running migrations from a separately-built artifact is how the two drift apart.
 
 # --- junk that lives *inside* the paths re-included above ---
 **/__pycache__
