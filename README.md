@@ -1,10 +1,12 @@
 # Production Agentic AI
 
+[![CI](https://github.com/AutoQAce/production_agentic_ai/actions/workflows/ci.yml/badge.svg)](https://github.com/AutoQAce/production_agentic_ai/actions/workflows/ci.yml)
+
 Infrastructure for running LLM agents in production: typed configuration, structured
 logging, credential redaction, request correlation, and an error path that tells you
 which line of *your* code failed.
 
-FastAPI · LangGraph · structlog · Pydantic Settings · Postgres · Prometheus · Grafana
+FastAPI · LangGraph · structlog · Pydantic Settings · Postgres + pgvector · Alembic · Docker · GitHub Actions
 
 ---
 
@@ -23,8 +25,12 @@ scaffolded but empty — `app/api`, `app/services`, `app/models`, `app/schemas` 
 | Stack introspection / blame frames | `app/core/error_context.py` |
 | Log + HTTP response for every failure family | `app/core/exception_handlers.py` |
 | Request correlation and lifecycle logging | `app/core/middleware.py` |
+| Container image — non-root, digest-pinned base, OS security patches at build, startup guard | `Dockerfile`, `docker-entrypoint.sh`, `.dockerignore` |
+| Schema migrations (no `create_all` anywhere) | `migrations/`, `alembic.ini` |
+| CI — lint, types, tests, image build, SBOM, vulnerability scan | `.github/workflows/ci.yml` |
 
-82 tests, 99.55% coverage on `app/`, `ruff` and `mypy` clean.
+Every push and pull request runs the full pipeline; the badge above is its latest result. Coverage
+floor is 80%, enforced in CI (current coverage is well above it).
 
 ---
 
@@ -37,11 +43,14 @@ make run                      # uvicorn on :8000
 curl localhost:8000/health
 ```
 
-The full local stack — API, Postgres, Prometheus, Grafana — comes up with:
+The local stack — the API image plus Postgres with pgvector — comes up with:
 
 ```bash
 make docker-up
 ```
+
+Prometheus and Grafana join when the metrics endpoint they scrape is built (Step 7); until then
+they would have nothing to collect.
 
 Requires [uv](https://docs.astral.sh/uv/). `pip` is not supported; it bypasses the lockfile.
 
@@ -63,8 +72,9 @@ not assumed. Locally, `config.py` loads them in a precedence cascade; in every d
 environment the same settings arrive as real environment variables instead, which take priority
 over any file.
 
-In production those variables are sourced from **Azure Key Vault via managed identity** (Bible
-Step 16) — never baked into the image, committed to the repo, or pasted into CI logs. The startup
+In production those variables are sourced from **Azure Key Vault via managed identity** (planned
+for the Azure deployment step) — never baked into the image, committed to the repo, or pasted into
+CI logs. The startup
 guard in `config.py` refuses to boot a staging or production tier on placeholder secrets, so a
 half-configured deployment fails loudly at start rather than serving traffic signed with
 `change-me`.
@@ -130,6 +140,23 @@ so it appears on every log line emitted anywhere downstream without being thread
 through a single function signature — and it comes back to the caller in the
 `X-Request-ID` header, which is what makes a user's screenshot traceable to a log line.
 
+### Every input is pinned, and the pins are scanned
+
+Python packages are locked in `uv.lock`; the base image is pinned by **digest**, not tag; every
+GitHub Action is pinned by **commit SHA**. A tag is a name someone else can move — in March 2026
+attackers force-pushed 76 of `aquasecurity/trivy-action`'s 77 tags to a credential stealer, and
+every workflow pinned by tag ran it.
+
+Pinning freezes vulnerabilities in place as well, so CI scans the built image with Trivy and fails
+on any fixable HIGH or CRITICAL finding. The gate's first contact went red twice, both times on
+real findings: nine in transitive Python dependencies (fixed by upgrading each to the lowest
+patched version, not to latest), then twelve in Debian packages on a **byte-identical image** —
+the image hadn't changed, the vulnerability database had. The fix for the second is the split in
+the `Dockerfile`: the digest gates the Python build behind a reviewed commit, while
+`apt-get upgrade` takes Debian's security patches at build time, because Debian ships fixes weeks
+before the official image is rebuilt. Each build's SBOM is kept as an artifact, named by commit, so
+*"were we affected?"* is answerable for any past build.
+
 ---
 
 ## Layout
@@ -144,9 +171,12 @@ app/
   schemas/       Pydantic request/response           ← scaffold
   core/langgraph agent graph + tools                 ← scaffold
 evals/           LLM-as-a-judge evaluation harness   ← scaffold
+migrations/      Alembic schema migrations
 scripts/         reproducible benchmarks
 docs/            module-by-module guides
-grafana/ prometheus/   observability stack config
+decisions/       architecture decision records (ADRs)
+.github/workflows/  CI pipeline
+grafana/ prometheus/   observability stack config    ← Step 7
 ```
 
 ## Docs
@@ -161,6 +191,7 @@ each decision and the alternatives that were rejected.
 | [3_config_py_guide](docs/3_config_py_guide.md) | settings, tiers, startup validation |
 | [4_logging_guide](docs/4_logging_guide.md) | the structlog pipeline and its benchmarks |
 | [5_exception_handling_guide](docs/5_exception_handling_guide.md) | the error path end to end |
+| [6_core_wiring_guide](docs/6_core_wiring_guide.md) | how the core modules connect, from `.env` to a running app |
 
 ## Development
 
@@ -172,3 +203,7 @@ uv run pre-commit run --all-files
 uv run python scripts/bench_error_context.py
 uv run python scripts/bench_logging.py
 ```
+
+CI (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request: ruff lint and
+format check → mypy → pytest with the coverage floor → image build → SBOM → Trivy scan. The image
+job only runs if the code checks pass.

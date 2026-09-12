@@ -12,7 +12,7 @@ install:            ## Sync dependencies from the lockfile
 run:                ## Run the API locally (reads .env.$(ENV))
 	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-docker-up:          ## Start the full local stack (api + db + prometheus + grafana)
+docker-up:          ## Start the local stack (api + db; prometheus/grafana return at Step 7)
 	docker compose up --build
 
 docker-down:        ## Stop the stack

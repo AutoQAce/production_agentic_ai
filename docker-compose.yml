@@ -1,5 +1,5 @@
 # ==========================
-# Layer 0/1/6 — local production topology (dev stack).
+# Layer 0/1 — local production topology (dev stack): api + Postgres. Observability joins at Step 7.
 # Cloud-required pieces (stress-test VM, image registry) go to Azure, not here.
 # Bring up:  docker compose up --build
 # ==========================
@@ -36,28 +36,10 @@ services:
       timeout: 5s
       retries: 5
 
-  # --- Observability (wired up fully in Layer 6) ---
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus:/etc/prometheus
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-    volumes:
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
-      - grafana-data:/var/lib/grafana
-    depends_on:
-      - prometheus
-    restart: unless-stopped
+  # Prometheus + Grafana return with Step 7 (observability), together with the /metrics endpoint
+  # they scrape and a prometheus.yml to mount. Until then they had nothing to collect, and with
+  # ./prometheus holding only a .gitkeep the bind mount hid the image's default config, so
+  # Prometheus crash-looped under restart: unless-stopped. Removed rather than left broken.
 
 volumes:
   pgdata:
-  grafana-data:
