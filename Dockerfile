@@ -27,10 +27,12 @@ FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1
 # the official python image is rebuilt only every few weeks, and in between trivy flags the frozen
 # base (first seen 2026-09-12: 12 HIGH/CRITICAL in perl-base, sqlite, pcre2, gzip, all fixed
 # upstream, none yet in any python:3.12-slim digest). The two mechanisms split the work: the digest
-# still gates *big* changes (Python patch, Debian point release) behind a reviewed commit; this line
-# takes only in-release security patches automatically. Builds of one commit can now differ by
-# those patches -- what shipped is recorded by the per-commit SBOM, and deploys use the scanned
-# image by digest, never a rebuild. Runs as root, so it must stay above `USER app`.
+# gates the Python build and the image's layout behind a reviewed commit (the official image
+# compiles Python itself; apt cannot move it). This line takes every Debian update within the
+# release automatically -- security patches *and* point releases: the first build moved 13.6 -> 13.7.
+# Builds of one commit can therefore differ in Debian packages -- what shipped is recorded by the
+# per-commit SBOM, and deploys use the scanned image by digest, never a rebuild. Runs as root, so it
+# must stay above `USER app`.
 RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
