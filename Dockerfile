@@ -23,6 +23,18 @@ RUN uv sync --frozen --no-install-project --no-dev
 # ----- final runtime image -----
 FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea
 
+# Apply Debian security updates on top of the pinned base. Debian publishes fixes continuously;
+# the official python image is rebuilt only every few weeks, and in between trivy flags the frozen
+# base (first seen 2026-09-12: 12 HIGH/CRITICAL in perl-base, sqlite, pcre2, gzip, all fixed
+# upstream, none yet in any python:3.12-slim digest). The two mechanisms split the work: the digest
+# still gates *big* changes (Python patch, Debian point release) behind a reviewed commit; this line
+# takes only in-release security patches automatically. Builds of one commit can now differ by
+# those patches -- what shipped is recorded by the per-commit SBOM, and deploys use the scanned
+# image by digest, never a rebuild. Runs as root, so it must stay above `USER app`.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
